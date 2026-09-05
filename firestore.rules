@@ -1,0 +1,77 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Helper functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    // Top-level user document
+    match /users/{userId} {
+      allow read, write: if isOwner(userId);
+
+      // User preferences
+      match /preferences/{prefId} {
+        allow read, write: if isOwner(userId);
+      }
+
+      // Weekly Insights (Generated only by Cloud Run backend via Admin SDK; Client can only read)
+      match /weeklyInsights/{insightId} {
+        allow read: if isOwner(userId);
+        allow write: if false; // Only Firebase Admin SDK (Cloud Run) can write
+      }
+
+      // Journals collection
+      match /journals/{journalId} {
+        allow read: if isOwner(userId);
+        
+        // Client can create journal
+        allow create: if isOwner(userId)
+          && request.resource.data.userId == userId
+          && request.resource.data.entryCount == 0;
+
+        // Client can update title, description, coverTheme, updatedAt, and atomic entryCount
+        allow update: if isOwner(userId)
+          && request.resource.data.userId == resource.data.userId
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'title', 'description', 'coverTheme', 'entryCount', 'updatedAt'
+          ]);
+
+        allow delete: if isOwner(userId);
+
+        // Subcollection: Entries
+        match /entries/{entryId} {
+          allow read: if isOwner(userId);
+
+          // Creation: originalContent is provided; aiReflection cannot be written by client
+          allow create: if isOwner(userId)
+            && request.resource.data.userId == userId
+            && request.resource.data.journalId == journalId
+            && request.resource.data.originalContent is string
+            && request.resource.data.originalContent.size() > 0;
+
+          // Update: originalContent, userId, journalId, and aiReflection are strictly IMMUTABLE for client
+          allow update: if isOwner(userId)
+            && request.resource.data.userId == resource.data.userId
+            && request.resource.data.journalId == resource.data.journalId
+            && request.resource.data.originalContent == resource.data.originalContent
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+              'title', 'updatedAt'
+            ]);
+
+          allow delete: if isOwner(userId);
+        }
+      }
+    }
+
+    // Collection Group rule for entries (needed for cross-journal chronological history queries)
+    match /{path=**}/entries/{entryId} {
+      allow read: if isAuthenticated() && resource.data.userId == request.auth.uid;
+    }
+  }
+}
