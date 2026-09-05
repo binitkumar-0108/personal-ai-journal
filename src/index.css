@@ -1,1 +1,102 @@
 @import "tailwindcss";
+
+@theme {
+  --font-serif: 'Newsreader', 'Lora', Georgia, serif;
+  --font-sans: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+  --font-hand: 'Caveat', cursive;
+
+  /* Natural Tones Organic Palette */
+  --color-canvas: #F7F5EE;
+  --color-surface-paper: #FAF8F3;
+  --color-surface-stone: #F3EFE6;
+  --color-surface-sand: #EDE7DC;
+  --color-border-natural: #DDD6C8;
+  --color-border-subtle: #EAE4D8;
+  --color-border-deep: #CFC7B7;
+
+  --color-ink-primary: #25211E;
+  --color-ink-charcoal: #524C46;
+  --color-ink-stone: #79726A;
+  --color-ink-muted: #8F877E;
+
+  --color-clay: #9E4F36;
+  --color-clay-hover: #8A422B;
+  --color-clay-light: #F8EDE9;
+
+  --color-sage: #3B5446;
+  --color-sage-light: #EBF2EE;
+
+  --color-amber-earth: #B87B28;
+  --color-amber-light: #F9F3E7;
+
+  --color-slate-river: #2B3842;
+  --color-slate-light: #ECEFF2;
+}
+
+/* 3D Physical Book & Layer Perspectives */
+.perspective-1000 {
+  perspective: 1200px;
+}
+
+.perspective-2000 {
+  perspective: 2000px;
+}
+
+.transform-style-3d {
+  transform-style: preserve-3d;
+}
+
+.backface-hidden {
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+}
+
+/* Natural Tones Paper Texture (soft warm fiber stippling) */
+.paper-texture {
+  background-color: #FAF8F3;
+  background-image: 
+    radial-gradient(#d8d0c0 0.5px, transparent 0.5px),
+    radial-gradient(#d8d0c0 0.5px, #FAF8F3 0.5px);
+  background-size: 16px 16px;
+  background-position: 0 0, 8px 8px;
+}
+
+/* Natural Tones Pressed Sand / Linen Grain */
+.paper-grain {
+  background-color: #F8F5EE;
+  box-shadow: inset 0 0 45px rgba(185, 170, 145, 0.14);
+}
+
+.book-spine-shadow {
+  box-shadow: inset 24px 0 30px -15px rgba(45, 35, 25, 0.20),
+              inset -4px 0 10px -2px rgba(45, 35, 25, 0.08);
+}
+
+.book-edge-shadow {
+  box-shadow: 0 14px 40px -10px rgba(40, 30, 20, 0.25),
+              0 3px 10px -2px rgba(40, 30, 20, 0.10);
+}
+
+.journal-cover-shadow {
+  box-shadow: -4px 8px 24px -4px rgba(35, 25, 15, 0.26),
+              -1px 2px 8px -1px rgba(35, 25, 15, 0.12);
+}
+
+/* Natural Tones Calm Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #D8D0C0;
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #C4BAA7;
+}
