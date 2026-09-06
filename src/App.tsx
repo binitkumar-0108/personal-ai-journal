@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import type { 
   Journal, 
   JournalEntry, 
@@ -18,8 +18,11 @@ import {
 import { 
   getEntries, 
   createEntry, 
-  deleteEntry 
+  deleteEntry,
+  attachEntryReflection,
+  attachVoiceRecording
 } from './services/entryService';
+import { uploadVoiceRecording, deleteVoiceRecording } from './services/storageService';
 import { getLatestWeeklyInsight } from './services/insightService';
 import { generateReflection, generateWeeklyInsights } from './services/apiService';
 
@@ -93,7 +96,36 @@ export default function App() {
         const allEntries = entriesArrays.flat();
         setEntries(allEntries);
 
-        setActiveJournalId((prev) => prev || fetchedJournals[0].id);
+        // Parse hash if present on initial load
+        const hash = window.location.hash;
+        if (hash.startsWith('#/journals/')) {
+          const parts = hash.split('/');
+          const journalId = parts[2];
+          const entriesPart = parts[3];
+          const entryId = parts[4];
+          
+          if (journalId && fetchedJournals.some(j => j.id === journalId)) {
+            setActiveJournalId(journalId);
+            if (entriesPart === 'entries' && entryId) {
+              const jEntries = allEntries
+                .filter(e => e.journalId === journalId)
+                .sort((a, b) => {
+                  const diff = a.createdAt.getTime() - b.createdAt.getTime();
+                  if (diff !== 0) return diff;
+                  return a.id.localeCompare(b.id);
+                });
+              const idx = jEntries.findIndex(e => e.id === entryId);
+              if (idx >= 0) {
+                setActiveEntryIndex(idx);
+              }
+            }
+            setCurrentRoute('journal-detail');
+          } else {
+            setActiveJournalId(fetchedJournals[0].id);
+          }
+        } else {
+          setActiveJournalId((prev) => prev || fetchedJournals[0].id);
+        }
       } else {
         setEntries([]);
       }
@@ -112,31 +144,109 @@ export default function App() {
     if (!authLoading) {
       if (user) {
         loadUserData(user.uid);
-        setCurrentRoute((prev) => (prev === 'landing' || prev === 'auth' ? 'journals' : prev));
+        const hash = window.location.hash.replace(/^#\/?/, '');
+        if (hash.startsWith('journals/')) {
+          setCurrentRoute('journal-detail');
+        } else if (['history', 'weekly-insights', 'settings', 'journals', 'write-yourself', 'summarize-gemini', 'talk-to-gemini'].includes(hash)) {
+          setCurrentRoute(hash);
+        } else {
+          setCurrentRoute('journals');
+        }
       } else {
         setJournals([]);
         setEntries([]);
         setWeeklyInsight(null);
         setActiveJournalId('');
-        setCurrentRoute('landing');
+        const hash = window.location.hash.replace(/^#\/?/, '');
+        setCurrentRoute(hash === 'auth' ? 'auth' : 'landing');
       }
     }
   }, [user, authLoading, loadUserData]);
 
+  // Handle hash changes (e.g. browser back/forward buttons)
+  useEffect(() => {
+    const handleHashChange = () => {
+      const hash = window.location.hash;
+      if (!user) {
+        if (hash === '#/auth') setCurrentRoute('auth');
+        else setCurrentRoute('landing');
+        return;
+      }
+
+      if (hash.startsWith('#/journals/')) {
+        const parts = hash.split('/');
+        const jId = parts[2];
+        const entriesPart = parts[3];
+        const eId = parts[4];
+        if (jId) {
+          setActiveJournalId(jId);
+          if (entriesPart === 'entries' && eId) {
+            const jEntries = entries
+              .filter(e => e.journalId === jId)
+              .sort((a, b) => {
+                const diff = a.createdAt.getTime() - b.createdAt.getTime();
+                if (diff !== 0) return diff;
+                return a.id.localeCompare(b.id);
+              });
+            const idx = jEntries.findIndex(e => e.id === eId);
+            if (idx >= 0) {
+              setActiveEntryIndex(idx);
+            }
+          }
+          setCurrentRoute('journal-detail');
+        }
+      } else {
+        const routeName = hash.replace(/^#\/?/, '');
+        if (routeName && ['journals', 'history', 'weekly-insights', 'settings', 'write-yourself', 'summarize-gemini', 'talk-to-gemini'].includes(routeName)) {
+          setCurrentRoute(routeName);
+        }
+      }
+    };
+
+    window.addEventListener('hashchange', handleHashChange);
+    return () => window.removeEventListener('hashchange', handleHashChange);
+  }, [user, entries]);
+
   const activeJournal = journals.find((j) => j.id === activeJournalId) || journals[0];
-  const activeJournalEntries = entries.filter((e) => e.journalId === activeJournal?.id);
+  const activeJournalEntries = useMemo(() => {
+    if (!activeJournal) return [];
+    return entries
+      .filter((e) => e.journalId === activeJournal.id)
+      .sort((a, b) => {
+        const diff = a.createdAt.getTime() - b.createdAt.getTime();
+        if (diff !== 0) return diff;
+        return a.id.localeCompare(b.id);
+      });
+  }, [entries, activeJournal]);
   const activeEntry = entries.find((e) => e.id === activeEntryId);
 
   // Navigation handlers
-  const handleNavigate = (route: string, param?: string) => {
+  const handleNavigate = (route: string, param?: string, entryIndex?: number) => {
     if (param) {
       if (route === 'journal-detail') {
         setActiveJournalId(param);
-        setActiveEntryIndex(0);
+        if (entryIndex !== undefined) {
+          setActiveEntryIndex(entryIndex);
+        } else {
+          setActiveEntryIndex(0);
+        }
       } else if (route === 'entry-detail') {
         setActiveEntryId(param);
       }
     }
+    
+    // Sync hash
+    if (route === 'journal-detail') {
+      const activeJId = param || activeJournalId;
+      // We don't have entry id easily if entryIndex is 0 unless we look it up, 
+      // but let's just do base journal hash for now, it'll update on actual JournalDetailPage.
+      window.location.hash = `#/journals/${activeJId}`;
+    } else if (route !== 'landing' && route !== 'auth') {
+      window.location.hash = `#/${route}`;
+    } else {
+      window.location.hash = '';
+    }
+
     setCurrentRoute(route);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
@@ -211,8 +321,13 @@ export default function App() {
     }
   };
 
-  // Save from Write Yourself
-  const handleSaveWriteYourself = async (data: { title: string; content: string }) => {
+  // Save from Write Yourself (Solitary writing)
+  const handleSaveWriteYourself = async (data: {
+    title: string;
+    content: string;
+    voiceBlob?: Blob;
+    voiceDuration?: number;
+  }) => {
     if (!user || !activeJournal) return;
     const newEntry = await createEntry(user.uid, {
       journalId: activeJournal.id,
@@ -220,6 +335,15 @@ export default function App() {
       mode: 'write',
       originalContent: data.content,
     });
+
+    if (data.voiceBlob) {
+      try {
+        const recording = await uploadVoiceRecording(user.uid, newEntry.id, data.voiceBlob, data.voiceDuration);
+        await attachVoiceRecording(user.uid, activeJournal.id, newEntry.id, recording);
+      } catch (err) {
+        console.warn('Failed to upload initial voice recording:', err);
+      }
+    }
 
     await loadUserData(user.uid);
 
@@ -235,8 +359,12 @@ export default function App() {
     title: string;
     content: string;
     aiReflection?: AIReflection;
+    voiceBlob?: Blob;
+    voiceDuration?: number;
   }) => {
     if (!user || !activeJournal) return;
+
+    // 1. Always save original entry in Firestore first (with reflection if available)
     const newEntry = await createEntry(user.uid, {
       journalId: activeJournal.id,
       title: data.title,
@@ -244,6 +372,40 @@ export default function App() {
       originalContent: data.content,
       aiReflection: data.aiReflection,
     });
+
+    if (data.voiceBlob) {
+      try {
+        const recording = await uploadVoiceRecording(user.uid, newEntry.id, data.voiceBlob, data.voiceDuration);
+        await attachVoiceRecording(user.uid, activeJournal.id, newEntry.id, recording);
+      } catch (err) {
+        console.warn('Failed to upload initial voice recording:', err);
+      }
+    }
+
+    if (data.aiReflection) {
+      try {
+        localStorage.setItem(`gemini_reflection_${newEntry.id}`, JSON.stringify(data.aiReflection));
+      } catch {
+        // ignore
+      }
+    }
+
+    // 2. If reflection was already requested/generated, also attempt backend persistence via Admin SDK
+    if (data.aiReflection) {
+      try {
+        const token = await getIdToken();
+        await generateReflection(
+          token,
+          'summarize',
+          data.content,
+          undefined,
+          activeJournal.id,
+          newEntry.id,
+        );
+      } catch (err) {
+        console.warn('Backend reflection route call completed or skipped:', err);
+      }
+    }
 
     await loadUserData(user.uid);
 
@@ -276,6 +438,7 @@ export default function App() {
   const handleConfirmReflectionReview = async () => {
     if (!user || !pendingReflectionData) return;
 
+    // 1. Persist the original content, dialogue, and AI reflection together
     const newEntry = await createEntry(user.uid, {
       journalId: pendingReflectionData.journal.id,
       title: pendingReflectionData.title,
@@ -284,6 +447,29 @@ export default function App() {
       conversation: pendingReflectionData.conversation,
       aiReflection: pendingReflectionData.reflection,
     });
+
+    if (pendingReflectionData.reflection) {
+      try {
+        localStorage.setItem(`gemini_reflection_${newEntry.id}`, JSON.stringify(pendingReflectionData.reflection));
+      } catch {
+        // ignore
+      }
+    }
+
+    // 2. Also attempt backend persistence via Admin SDK
+    try {
+      const token = await getIdToken();
+      await generateReflection(
+        token,
+        'conversation',
+        pendingReflectionData.content,
+        pendingReflectionData.conversation,
+        pendingReflectionData.journal.id,
+        newEntry.id,
+      );
+    } catch (err) {
+      console.warn('Backend reflection route call completed or skipped:', err);
+    }
 
     await loadUserData(user.uid);
 
@@ -294,11 +480,26 @@ export default function App() {
     setPendingReflectionData(null);
   };
 
-  // When 3D reveal animation finishes, transition into the journal book
+  // When 3D reveal animation finishes, transition into the journal book on the newly added page
   const handleRevealComplete = () => {
     if (revealData) {
-      setActiveJournalId(revealData.journal.id);
-      setActiveEntryIndex(0);
+      const targetJournalId = revealData.journal.id;
+      const targetEntryId = revealData.entry.id;
+      setActiveJournalId(targetJournalId);
+
+      // Find the index of the newly created page in the chronologically ordered journal
+      const journalEntries = entries
+        .filter((e) => e.journalId === targetJournalId)
+        .sort((a, b) => {
+          const diff = a.createdAt.getTime() - b.createdAt.getTime();
+          if (diff !== 0) return diff;
+          return a.id.localeCompare(b.id);
+        });
+
+      const foundIdx = journalEntries.findIndex((e) => e.id === targetEntryId);
+      const targetIdx = foundIdx >= 0 ? foundIdx : Math.max(0, journalEntries.length - 1);
+
+      setActiveEntryIndex(targetIdx);
       setRevealData(null);
       setCurrentRoute('journal-detail');
     }
@@ -306,7 +507,26 @@ export default function App() {
 
   const handleDeleteEntry = async (entryId: string) => {
     if (!user || !activeJournal) return;
+    
+    // Optimistically find entry to cleanup voice if it exists
+    const entryToDelete = entries.find(e => e.id === entryId);
+    
+    try {
+      if (entryToDelete?.voiceRecording?.storagePath) {
+        await deleteVoiceRecording(entryToDelete.voiceRecording.storagePath);
+      }
+    } catch (err) {
+      console.warn('Failed to delete voice recording, but proceeding with entry deletion', err);
+    }
+
     await deleteEntry(user.uid, activeJournal.id, entryId);
+    
+    try {
+      localStorage.removeItem(`gemini_reflection_${entryId}`);
+    } catch {
+      // ignore
+    }
+
     setEntries((prev) => prev.filter((e) => e.id !== entryId));
   };
 
@@ -317,13 +537,31 @@ export default function App() {
         token,
         entry.mode,
         entry.originalContent,
-        entry.conversation
+        entry.conversation,
+        entry.journalId,
+        entry.id,
       );
+
+      // Persist directly to Firestore as authenticated owner
+      if (user) {
+        try {
+          await attachEntryReflection(user.uid, entry.journalId, entry.id, reflection);
+        } catch (persistErr) {
+          console.warn('Firestore direct write failed; falling back to local cache:', persistErr);
+        }
+        try {
+          localStorage.setItem(`gemini_reflection_${entry.id}`, JSON.stringify(reflection));
+        } catch {
+          // ignore localStorage quota error
+        }
+      }
+
       setEntries((prev) =>
-        prev.map((e) => (e.id === entry.id ? { ...e, aiReflection: reflection } : e))
+        prev.map((e) => (e.id === entry.id ? { ...e, aiReflection: reflection } : e)),
       );
     } catch (err) {
       console.error('Failed to request reflection:', err);
+      throw err;
     }
   };
 
@@ -424,6 +662,7 @@ export default function App() {
               setEditingJournal(journal);
               setIsCreateJournalOpen(true);
             }}
+            onDeleteEntry={handleDeleteEntry}
             onRequestReflection={handleRequestReflection}
             onEntryUpdated={(updatedEntry) => {
               setEntries((prev) => prev.map((e) => (e.id === updatedEntry.id ? updatedEntry : e)));

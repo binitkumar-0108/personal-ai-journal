@@ -1,18 +1,15 @@
 /**
- * API Service — frontend HTTP client for the Cloud Run backend.
+ * API Service — frontend HTTP client for the backend API.
  *
  * All Gemini operations route through this service. It sends the Firebase ID token
  * in the Authorization header; the backend verifies it and derives the uid server-side.
  *
- * STUB: All functions currently return a descriptive error until the Cloud Run
- * backend is deployed and VITE_CLOUD_RUN_API_URL is configured.
- *
- * To activate:
- *   1. Deploy the backend (personal-ai-journal/backend/)
- *   2. Set VITE_CLOUD_RUN_API_URL=https://your-service.run.app in .env.local
+ * In development, requests to /api/* are proxied via Vite to http://localhost:8080.
+ * In Cloud Run production, Express serves both frontend static assets and /api/* endpoints
+ * from the same origin.
  *
  * IMPORTANT: Gemini API credentials are NEVER placed in frontend env vars.
- * They live in Google Cloud Secret Manager, mounted into the Cloud Run service.
+ * They live in Google Cloud Secret Manager (GEMINI_API_KEY:1), mounted into Cloud Run.
  */
 
 import type { AIReflection, ChatMessage, ReflectionMode, WeeklyInsight } from '../types/index';
@@ -21,7 +18,7 @@ import type { AIReflection, ChatMessage, ReflectionMode, WeeklyInsight } from '.
 // Configuration
 // ---------------------------------------------------------------------------
 
-const API_BASE_URL = import.meta.env.VITE_CLOUD_RUN_API_URL as string | undefined;
+const API_BASE_URL = (import.meta.env.VITE_CLOUD_RUN_API_URL as string | undefined) || '';
 
 // ---------------------------------------------------------------------------
 // Internal fetch helper
@@ -42,14 +39,6 @@ async function apiFetch<T>(
   endpoint: string,
   body: Record<string, unknown>,
 ): Promise<T> {
-  if (!API_BASE_URL) {
-    throw new ApiError(
-      503,
-      'Cloud Run backend is not yet configured. ' +
-        'Set VITE_CLOUD_RUN_API_URL in .env.local once the backend is deployed.',
-    );
-  }
-
   const url = `${API_BASE_URL.replace(/\/$/, '')}${endpoint}`;
 
   const response = await fetch(url, {
@@ -88,7 +77,7 @@ export async function generateSummary(
   idToken: string,
   content: string,
 ): Promise<string> {
-  const result = await apiFetch<{ summary: string }>(idToken, '/api/summarize', {
+  const result = await apiFetch<{ summary: string; reflection?: AIReflection }>(idToken, '/api/summarize', {
     content,
   });
   return result.summary;
@@ -111,22 +100,27 @@ export async function generateChatReply(
 
 /**
  * Ask Gemini to produce a structured AIReflection from writing or conversation.
+ * If journalId and entryId are supplied, backend persists aiReflection via Admin SDK.
  */
 export async function generateReflection(
   idToken: string,
   mode: ReflectionMode,
   content: string,
   conversation?: ChatMessage[],
+  journalId?: string,
+  entryId?: string,
 ): Promise<AIReflection> {
   const result = await apiFetch<{ reflection: AIReflection }>(
     idToken,
     '/api/reflection',
-    { mode, content, conversation },
+    { mode, content, conversation, journalId, entryId },
   );
-  // Normalise generatedAt from ISO string to Date
+  // Normalise generatedAt to Date at the UI boundary
   return {
     ...result.reflection,
-    generatedAt: new Date(result.reflection.generatedAt as unknown as string),
+    generatedAt: result.reflection.generatedAt
+      ? new Date(result.reflection.generatedAt as unknown as string)
+      : new Date(),
   };
 }
 
@@ -145,7 +139,9 @@ export async function generateWeeklyInsights(
   );
   return {
     ...result.insight,
-    generatedAt: new Date(result.insight.generatedAt as unknown as string),
+    generatedAt: result.insight.generatedAt
+      ? new Date(result.insight.generatedAt as unknown as string)
+      : new Date(),
   };
 }
 

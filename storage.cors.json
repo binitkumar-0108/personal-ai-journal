@@ -1,0 +1,23 @@
+[
+  {
+    "origin": [
+      "http://localhost:5173",
+      "http://localhost:5174",
+      "http://localhost:4173",
+      "https://project-9de0e9d1-3b4e-44bb-91c.web.app",
+      "https://project-9de0e9d1-3b4e-44bb-91c.firebaseapp.com"
+    ],
+    "method": ["GET", "POST", "PUT", "DELETE", "HEAD", "OPTIONS"],
+    "responseHeader": [
+      "Content-Type",
+      "Authorization",
+      "X-Requested-With",
+      "X-Goog-Upload-Protocol",
+      "X-Goog-Upload-Command",
+      "X-Goog-Upload-Offset",
+      "X-Goog-Upload-Status",
+      "X-Firebase-Storage-Version"
+    ],
+    "maxAgeSeconds": 3600
+  }
+]

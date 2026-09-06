@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   ChevronLeft, 
   ChevronRight, 
@@ -9,12 +9,14 @@ import {
   Sparkles, 
   AlignLeft, 
   Layers, 
-  Feather 
+  Feather,
+  Trash2
 } from 'lucide-react';
-import type { Journal, JournalEntry } from '../types/index';
+import type { Journal, JournalEntry, VoiceRecording } from '../types/index';
 import { JournalBook3D } from '../components/journal/JournalBook3D';
 import { Button } from '../components/common/Button';
 import { GeminiPerspectivePanel } from '../components/reflection/GeminiPerspectivePanel';
+import { VoiceRecorderPanel } from '../components/common/VoiceRecorderPanel';
 
 interface JournalDetailPageProps {
   journal: Journal;
@@ -22,6 +24,7 @@ interface JournalDetailPageProps {
   onBack: () => void;
   onNewEntry: () => void;
   onEditJournal: (journal: Journal) => void;
+  onDeleteEntry?: (entryId: string) => void;
   onRequestReflection?: (entry: JournalEntry) => Promise<void> | void;
   onEntryUpdated?: (updatedEntry: JournalEntry) => void;
   initialEntryIndex?: number;
@@ -33,7 +36,9 @@ export const JournalDetailPage: React.FC<JournalDetailPageProps> = ({
   onBack,
   onNewEntry,
   onEditJournal,
+  onDeleteEntry,
   onRequestReflection,
+  onEntryUpdated,
   initialEntryIndex = 0,
 }) => {
   const [entriesList, setEntriesList] = useState<JournalEntry[]>(entries);
@@ -41,15 +46,34 @@ export const JournalDetailPage: React.FC<JournalDetailPageProps> = ({
     Math.min(initialEntryIndex, Math.max(0, entries.length - 1))
   );
   const [showTableOfContents, setShowTableOfContents] = useState(false);
+  const [showVoiceRecorder, setShowVoiceRecorder] = useState(false);
   const [viewMode, setViewMode] = useState<'book' | 'reader'>('book');
   const [generatingEntryId, setGeneratingEntryId] = useState<string | null>(null);
 
+  const lastInitialRef = useRef(initialEntryIndex);
+
+  useEffect(() => {
+    if (lastInitialRef.current !== initialEntryIndex) {
+      lastInitialRef.current = initialEntryIndex;
+      setCurrentPageIndex(Math.min(initialEntryIndex, Math.max(0, entries.length - 1)));
+    }
+  }, [initialEntryIndex, entries.length]);
+
   useEffect(() => {
     setEntriesList(entries);
+    let newIndex = currentPageIndex;
     if (currentPageIndex >= entries.length && entries.length > 0) {
-      setCurrentPageIndex(entries.length - 1);
+      newIndex = entries.length - 1;
+      setCurrentPageIndex(newIndex);
     }
-  }, [entries, currentPageIndex]);
+    
+    // Sync hash
+    if (entries[newIndex]) {
+      window.location.hash = `#/journals/${journal.id}/entries/${entries[newIndex].id}`;
+    } else {
+      window.location.hash = `#/journals/${journal.id}`;
+    }
+  }, [entries, currentPageIndex, journal.id]);
 
   const currentEntry: JournalEntry | undefined = entriesList[currentPageIndex];
 
@@ -66,6 +90,30 @@ export const JournalDetailPage: React.FC<JournalDetailPageProps> = ({
     } finally {
       setGeneratingEntryId(null);
     }
+  };
+
+  const handleDeletePage = () => {
+    if (!currentEntry || !onDeleteEntry) return;
+    if (window.confirm(`Are you sure you want to delete this specific page ("${currentEntry.title}")? This action cannot be undone.`)) {
+      onDeleteEntry(currentEntry.id);
+      
+      if (currentPageIndex > 0) {
+        setCurrentPageIndex(currentPageIndex - 1);
+      }
+    }
+  };
+
+  const handleVoiceSaved = (recording: VoiceRecording) => {
+    if (!currentEntry || !onEntryUpdated) return;
+    const updated = { ...currentEntry, voiceRecording: recording };
+    onEntryUpdated(updated);
+    setShowVoiceRecorder(false);
+  };
+
+  const handleVoiceDeleted = () => {
+    if (!currentEntry || !onEntryUpdated) return;
+    const updated = { ...currentEntry, voiceRecording: undefined };
+    onEntryUpdated(updated);
   };
 
   return (
@@ -131,9 +179,60 @@ export const JournalDetailPage: React.FC<JournalDetailPageProps> = ({
             >
               New Page
             </Button>
+
+            {currentEntry && (
+              <Button
+                variant={currentEntry.voiceRecording ? 'secondary' : 'outline'}
+                size="sm"
+                className="hidden sm:inline-flex"
+                onClick={() => setShowVoiceRecorder(!showVoiceRecorder)}
+              >
+                {currentEntry.voiceRecording ? '🎵 Voice Memo' : '🎵 Record Voice'}
+              </Button>
+            )}
+            
+            {entries.length > 0 && onDeleteEntry && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-[#A25438] hover:bg-[#FDF2F0] hover:text-[#8A3A22] ml-1"
+                onClick={handleDeletePage}
+                title="Delete this page"
+              >
+                <Trash2 className="w-4 h-4" />
+              </Button>
+            )}
           </div>
         </div>
       </div>
+
+      {/* Voice Recording Panel Drawer / Bar for current page */}
+      {(showVoiceRecorder || (currentEntry && currentEntry.voiceRecording && viewMode === 'book')) && currentEntry && (
+        <div className="bg-[#FAF6EE] border-b border-[#DDD3C2] px-4 sm:px-8 py-3 animate-in fade-in slide-in-from-top-2 shadow-xs">
+          <div className="max-w-4xl mx-auto">
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-[11px] font-mono text-[#8C8277] uppercase tracking-wider">
+                Audio Recording • Page {currentPageIndex + 1} ({currentEntry.title})
+              </span>
+              <button
+                type="button"
+                onClick={() => setShowVoiceRecorder(false)}
+                className="text-xs text-[#A25438] hover:underline cursor-pointer"
+              >
+                Close
+              </button>
+            </div>
+            <VoiceRecorderPanel
+              uid={currentEntry.userId}
+              journalId={journal.id}
+              entryId={currentEntry.id}
+              existingRecording={currentEntry.voiceRecording}
+              onSaved={handleVoiceSaved}
+              onDeleted={handleVoiceDeleted}
+            />
+          </div>
+        </div>
+      )}
 
       {/* Table of Contents Drawer / Popup */}
       {showTableOfContents && (
@@ -292,6 +391,17 @@ export const JournalDetailPage: React.FC<JournalDetailPageProps> = ({
                     <p className="font-serif text-base sm:text-lg text-[#2B2623] leading-relaxed whitespace-pre-wrap">
                       {currentEntry?.originalContent}
                     </p>
+                  )}
+
+                  {currentEntry && (
+                    <VoiceRecorderPanel
+                      uid={currentEntry.userId}
+                      journalId={journal.id}
+                      entryId={currentEntry.id}
+                      existingRecording={currentEntry.voiceRecording}
+                      onSaved={handleVoiceSaved}
+                      onDeleted={handleVoiceDeleted}
+                    />
                   )}
                 </div>
 
