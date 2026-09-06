@@ -57,9 +57,12 @@ export const WriteYourselfPage: React.FC<WriteYourselfPageProps> = ({
     });
   };
 
+  const [saveError, setSaveError] = useState<string | null>(null);
+
   const handleSave = async () => {
     if (!content.trim() && !audioBlob) return;
     setIsSaving(true);
+    setSaveError(null);
     try {
       await onSaveEntry({
         title: title.trim() || 'Untitled Reflection',
@@ -67,6 +70,10 @@ export const WriteYourselfPage: React.FC<WriteYourselfPageProps> = ({
         voiceBlob: audioBlob || undefined,
         voiceDuration: durationSeconds || undefined,
       });
+    } catch (err: unknown) {
+      console.error('Failed to save entry:', err);
+      const msg = err instanceof Error ? err.message : 'Unable to save entry. Please check your network connection.';
+      setSaveError(msg);
     } finally {
       setIsSaving(false);
     }
@@ -109,6 +116,20 @@ export const WriteYourselfPage: React.FC<WriteYourselfPageProps> = ({
             </Button>
           </div>
         </div>
+
+        {/* Error notification if save failed */}
+        {saveError && (
+          <div className="mt-4 p-4 bg-[#F8EFEA] border border-[#E2C7B8] rounded-xl flex items-start gap-3 text-xs text-[#8A3A22] animate-in fade-in">
+            <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+            <div className="flex-1">
+              <span className="font-medium">Save Notice: </span>
+              <span>{saveError}</span>
+              <p className="mt-1 text-[11px] text-[#A25438]">
+                Your original thoughts and audio recording remain safe in the editor. You can try saving again.
+              </p>
+            </div>
+          </div>
+        )}
 
         {/* Date and Distinct Voice Controls: Voice-to-Text vs Actual Audio */}
         <div className="mt-8 mb-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs font-mono text-[#8C8277]">

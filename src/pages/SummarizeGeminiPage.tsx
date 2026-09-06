@@ -82,6 +82,7 @@ export const SummarizeGeminiPage: React.FC<SummarizeGeminiPageProps> = ({
   const handleSave = async () => {
     if (!content.trim() && !audioBlob) return;
     setIsSaving(true);
+    setError(null);
     try {
       await onSaveEntry({
         title: title.trim() || reflectionData?.title || 'Distilled Thoughts',
@@ -90,6 +91,10 @@ export const SummarizeGeminiPage: React.FC<SummarizeGeminiPageProps> = ({
         voiceBlob: audioBlob || undefined,
         voiceDuration: durationSeconds || undefined,
       });
+    } catch (err: unknown) {
+      console.error('Failed to save entry:', err);
+      const msg = err instanceof Error ? err.message : 'Unable to save entry. Please check your network connection.';
+      setError(msg);
     } finally {
       setIsSaving(false);
     }

@@ -35,17 +35,18 @@ service cloud.firestore {
           && request.resource.data.userId == userId
           && request.resource.data.entryCount == 0;
 
-        // Client can update title, description, coverTheme, updatedAt, and atomic entryCount (+1, -1, or unchanged)
+        // Client can update title, description, coverTheme, updatedAt, and entryCount
         allow update: if isOwner(userId)
-          && request.resource.data.userId == resource.data.userId
+          && (!('userId' in resource.data) || request.resource.data.userId == resource.data.userId)
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
             'title', 'description', 'coverTheme', 'entryCount', 'updatedAt'
           ])
           && (
             !request.resource.data.diff(resource.data).affectedKeys().hasAny(['entryCount'])
-            || request.resource.data.entryCount == resource.data.entryCount + 1
-            || request.resource.data.entryCount == resource.data.entryCount - 1
-            || request.resource.data.entryCount == resource.data.entryCount
+            || (
+              request.resource.data.entryCount is number
+              && request.resource.data.entryCount >= 0
+            )
           );
 
         allow delete: if isOwner(userId);
@@ -71,14 +72,15 @@ service cloud.firestore {
 
           // Update: originalContent, userId, and journalId are strictly IMMUTABLE for client
           allow update: if isOwner(userId)
-            && request.resource.data.userId == resource.data.userId
-            && request.resource.data.journalId == resource.data.journalId
-            && request.resource.data.originalContent == resource.data.originalContent
+            && (!('userId' in resource.data) || request.resource.data.userId == resource.data.userId)
+            && (!('journalId' in resource.data) || request.resource.data.journalId == resource.data.journalId)
+            && (!('originalContent' in resource.data) || request.resource.data.originalContent == resource.data.originalContent)
             && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
               'title', 'updatedAt', 'aiReflection', 'voiceRecording'
             ])
             && (
               !request.resource.data.diff(resource.data).affectedKeys().hasAny(['voiceRecording'])
+              || !('voiceRecording' in request.resource.data)
               || request.resource.data.voiceRecording == null
               || (
                 request.resource.data.voiceRecording.storagePath is string
