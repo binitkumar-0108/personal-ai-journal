@@ -1,10 +1,11 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { ArrowLeft, Send, Sparkles, Trash2, BookOpen, AlertCircle } from 'lucide-react';
+import { ArrowLeft, Send, Sparkles, Trash2, BookOpen, AlertCircle, Mic, MicOff, X } from 'lucide-react';
 import type { Journal, ChatMessage as ChatMessageType, AIReflection } from '../types/index';
 import { Button } from '../components/common/Button';
 import { ChatMessage } from '../components/chat/ChatMessage';
 import { useAuth } from '../context/AuthContext';
 import { generateChatReply, generateReflection } from '../services/apiService';
+import { useSpeechRecognition } from '../hooks/useSpeechRecognition';
 
 interface TalkToGeminiPageProps {
   journal: Journal;
@@ -35,6 +36,26 @@ export const TalkToGeminiPage: React.FC<TalkToGeminiPageProps> = ({
   const [isTyping, setIsTyping] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const handleVoiceTranscript = (textChunk: string) => {
+    setInputText((prev) => {
+      const trimmed = textChunk.trim();
+      if (!trimmed) return prev;
+      if (!prev.trim()) return trimmed;
+      const needsSpace = !prev.endsWith(' ') && !prev.endsWith('\n');
+      return `${prev}${needsSpace ? ' ' : ''}${trimmed}`;
+    });
+  };
+
+  const {
+    status: speechStatus,
+    isListening: isSpeechListening,
+    interimTranscript,
+    errorMessage: speechError,
+    startListening: startSpeechListening,
+    stopListening: stopSpeechListening,
+    clearError: clearSpeechError,
+  } = useSpeechRecognition({ onTranscriptChange: handleVoiceTranscript });
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -235,7 +256,43 @@ export const TalkToGeminiPage: React.FC<TalkToGeminiPageProps> = ({
 
       {/* Input Box */}
       {!isSaving && (
-        <div className="mt-2">
+        <div className="mt-2 space-y-2">
+          {/* Speech Recognition Error Banner */}
+          {speechError && (
+            <div className="p-2.5 bg-[#FDF2F0] border border-[#F2C0B8] rounded-xl flex items-center justify-between text-xs text-[#8A3A22] animate-in fade-in">
+              <div className="flex items-center gap-2">
+                <AlertCircle className="w-3.5 h-3.5 shrink-0 text-[#9E4F36]" />
+                <span>{speechError}</span>
+              </div>
+              <button
+                type="button"
+                onClick={clearSpeechError}
+                className="p-1 hover:bg-[#F8DDD7] rounded cursor-pointer"
+                title="Dismiss"
+              >
+                <X className="w-3 h-3 text-[#8A3A22]" />
+              </button>
+            </div>
+          )}
+
+          {/* Active Listening Indicator */}
+          {isSpeechListening && (
+            <div className="flex items-center justify-between px-3 py-1.5 bg-[#FAF6EE] border border-[#E8DFCFA] rounded-xl text-xs font-mono text-[#9E4F36] animate-in fade-in">
+              <div className="flex items-center gap-2">
+                <span className="relative flex h-2 w-2">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#9E4F36] opacity-75" />
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-[#9E4F36]" />
+                </span>
+                <span className="font-semibold">Listening... (Speak naturally, speech converts to editable text)</span>
+              </div>
+              {interimTranscript && (
+                <span className="font-serif italic text-[#6E665E] truncate max-w-xs sm:max-w-sm">
+                  &ldquo;{interimTranscript}&rdquo;
+                </span>
+              )}
+            </div>
+          )}
+
           <div className="relative bg-[#FAF6EE] border border-[#D5CABB] rounded-2xl p-2 shadow-xs focus-within:ring-2 focus-within:ring-[#A25438]/30">
             <textarea
               rows={3}
@@ -249,15 +306,43 @@ export const TalkToGeminiPage: React.FC<TalkToGeminiPageProps> = ({
               <span className="text-[11px] font-mono text-[#8C8277]">
                 Companion dialogue • Free-form exploration
               </span>
-              <Button
-                variant="primary"
-                size="sm"
-                onClick={handleSend}
-                disabled={!inputText.trim() || isTyping}
-                rightIcon={<Send className="w-3.5 h-3.5" />}
-              >
-                Send
-              </Button>
+
+              <div className="flex items-center gap-2">
+                {speechStatus === 'unsupported' ? (
+                  <button
+                    type="button"
+                    disabled
+                    title="Speech recognition is unavailable in this browser"
+                    className="p-2 rounded-xl text-[#8C8277] opacity-40 cursor-not-allowed border border-[#DDD6C8]/60 bg-[#FAF6EE]"
+                  >
+                    <MicOff className="w-4 h-4" />
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={isSpeechListening ? stopSpeechListening : startSpeechListening}
+                    aria-label={isSpeechListening ? 'Stop voice recording' : 'Start voice recording'}
+                    title={isSpeechListening ? 'Listening... Tap to stop' : 'Voice to text input (speaks into composer)'}
+                    className={`p-2 rounded-xl transition-all cursor-pointer border flex items-center justify-center ${
+                      isSpeechListening
+                        ? 'bg-[#9E4F36] text-white border-[#87412B] shadow-xs'
+                        : 'bg-[#FAF6EE] text-[#463F3A] border-[#DDD6C8] hover:bg-[#F2ECE1] hover:text-[#1C1816]'
+                    }`}
+                  >
+                    <Mic className={`w-4 h-4 ${isSpeechListening ? 'text-white animate-pulse' : 'text-[#9E4F36]'}`} />
+                  </button>
+                )}
+
+                <Button
+                  variant="primary"
+                  size="sm"
+                  onClick={handleSend}
+                  disabled={!inputText.trim() || isTyping}
+                  rightIcon={<Send className="w-3.5 h-3.5" />}
+                >
+                  Send
+                </Button>
+              </div>
             </div>
           </div>
         </div>

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Sparkles, Feather, ArrowRight } from 'lucide-react';
+import { Sparkles, Feather, ArrowRight, RefreshCw, AlertCircle } from 'lucide-react';
 import type { AIReflection, JournalEntry } from '../../types/index';
 import { GeminiPerspectiveButton } from './GeminiPerspectiveButton';
 import { ReflectionLoadingState } from './ReflectionLoadingState';
@@ -22,8 +22,8 @@ export const GeminiPerspectivePanel: React.FC<GeminiPerspectivePanelProps> = ({
   isBookPage = false,
 }) => {
   const hasReflection = Boolean(entry.aiReflection);
-
   const [activeViewMap, setActiveViewMap] = useState<Record<string, 'user' | 'gemini'>>({});
+  const [regenerateError, setRegenerateError] = useState<string | null>(null);
 
   const currentActiveView: 'user' | 'gemini' =
     activeViewMap[entry.id] ??
@@ -37,7 +37,19 @@ export const GeminiPerspectivePanel: React.FC<GeminiPerspectivePanelProps> = ({
     setActiveViewMap((prev) => ({ ...prev, [entry.id]: view }));
   };
 
-  if (isLoading) {
+  const handleRegenerate = async () => {
+    if (!onGetPerspective || isLoading) return;
+    setRegenerateError(null);
+    try {
+      await onGetPerspective(entry);
+    } catch (err) {
+      console.error('Regeneration error:', err);
+      setRegenerateError('Could not regenerate reflection. Previous reflection preserved.');
+    }
+  };
+
+  // Only show full-screen skeleton if we don't have a reflection yet
+  if (isLoading && !hasReflection) {
     return (
       <div className={`h-full flex flex-col justify-between overflow-hidden ${className}`}>
         <ReflectionLoadingState />
@@ -154,6 +166,12 @@ export const GeminiPerspectivePanel: React.FC<GeminiPerspectivePanelProps> = ({
   const hasActions = Boolean(reflection.actionItems && reflection.actionItems.length > 0);
   const showCarryForward = hasGoals || hasActions;
 
+  const isStale = Boolean(
+    reflection.generatedAt &&
+    entry.updatedAt &&
+    new Date(entry.updatedAt).getTime() > new Date(reflection.generatedAt).getTime() + 1500
+  );
+
   return (
     <div className={`h-full flex flex-col justify-between overflow-hidden animate-in fade-in duration-300 ${className}`}>
       <div className="flex items-center justify-between border-b border-[#EAE4D8] pb-3 mb-3.5 shrink-0">
@@ -167,6 +185,15 @@ export const GeminiPerspectivePanel: React.FC<GeminiPerspectivePanelProps> = ({
         </div>
 
         <div className="flex items-center gap-2">
+          {isStale && (
+            <span
+              className="text-[9px] uppercase tracking-wider font-mono text-[#B87B28] bg-[#FAF2E6] px-1.5 py-0.5 rounded border border-[#E8D5B5]"
+              title="Journal text was updated after this reflection was generated"
+            >
+              Earlier Draft
+            </span>
+          )}
+
           <span className="hidden sm:inline-block text-[10px] uppercase tracking-wider font-mono text-[#8F877E] px-2 py-0.5 bg-[#EFEAE0] rounded border border-[#DDD6C8]/60">
             AI Reflection
           </span>
@@ -193,6 +220,28 @@ export const GeminiPerspectivePanel: React.FC<GeminiPerspectivePanelProps> = ({
           )}
         </div>
       </div>
+
+      {regenerateError && (
+        <div className="mb-2 p-2 bg-[#F8EFEA] border border-[#E2C7B8] rounded-lg flex items-center justify-between gap-2 text-[11px] text-[#8A3A22] shrink-0">
+          <div className="flex items-center gap-1.5">
+            <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+            <span>{regenerateError}</span>
+          </div>
+          <button
+            onClick={() => setRegenerateError(null)}
+            className="text-[10px] text-[#A25438] hover:underline cursor-pointer font-mono"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
+
+      {isLoading && (
+        <div className="mb-2 p-2 bg-[#F5EFEB] border border-[#DDD6C8] rounded-lg flex items-center gap-2 text-[11px] text-[#79726A] shrink-0 animate-pulse">
+          <RefreshCw className="w-3 h-3 text-[#B87B28] animate-spin" />
+          <span>Consulting Gemini for fresh perspective...</span>
+        </div>
+      )}
 
       <div className={`flex-1 overflow-y-auto pr-1 space-y-3.5 ${isBookPage ? 'scrollbar-none' : ''}`}>
         <div className="border-l-2 border-[#9E4F36] pl-3.5 py-1">
@@ -272,10 +321,24 @@ export const GeminiPerspectivePanel: React.FC<GeminiPerspectivePanelProps> = ({
         )}
       </div>
 
-      <div className="pt-2.5 border-t border-[#EAE4D8] flex items-center justify-between text-xs text-[#8F877E] shrink-0">
-        <span className="font-serif italic text-[11px] text-[#8F877E]">
-          A perspective, not a judgment.
-        </span>
+      <div className="pt-2.5 border-t border-[#EAE4D8] flex items-center justify-between text-xs text-[#8F877E] shrink-0 gap-2 flex-wrap">
+        <div className="flex items-center gap-2">
+          <span className="font-serif italic text-[11px] text-[#8F877E]">
+            A perspective, not a judgment.
+          </span>
+          {onGetPerspective && (
+            <button
+              type="button"
+              onClick={handleRegenerate}
+              disabled={isLoading}
+              className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-sans font-medium rounded border border-[#DDD6C8] bg-[#FAF8F3] hover:bg-[#EFEAE0] text-[#79726A] hover:text-[#25211E] transition-colors cursor-pointer disabled:opacity-50"
+              title="Regenerate Gemini's reflection for this page"
+            >
+              <RefreshCw className={`w-2.5 h-2.5 text-[#B87B28] ${isLoading ? 'animate-spin' : ''}`} />
+              <span>{isLoading ? 'Regenerating...' : 'Regenerate'}</span>
+            </button>
+          )}
+        </div>
         {journalTitle && (
           <span className="font-mono text-[10px] truncate max-w-[120px] text-[#A69E94]">
             {journalTitle}

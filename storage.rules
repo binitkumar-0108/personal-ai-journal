@@ -1,0 +1,31 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    // Voice recordings: users can only read/write their own recordings
+    // Path format: voice/{uid}/{filename}
+    match /voice/{userId}/{fileName} {
+      allow read: if request.auth != null && request.auth.uid == userId;
+
+      allow write: if request.auth != null
+        && request.auth.uid == userId
+        // Enforce maximum file size: 50 MB
+        && request.resource.size <= 50 * 1024 * 1024
+        // Enforce audio MIME types only
+        && (
+          request.resource.contentType.matches('audio/.*')
+          || request.resource.contentType == 'audio/webm'
+          || request.resource.contentType == 'audio/mp4'
+          || request.resource.contentType == 'audio/ogg'
+          || request.resource.contentType == 'audio/wav'
+          || request.resource.contentType == 'audio/mpeg'
+        );
+
+      allow delete: if request.auth != null && request.auth.uid == userId;
+    }
+
+    // Deny all other paths
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

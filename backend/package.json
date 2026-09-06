@@ -1,0 +1,28 @@
+{
+  "name": "personal-ai-journal-backend",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Backend API for Personal AI Journal powering Gemini operations and server-side Firestore",
+  "main": "dist/server.js",
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "start": "node dist/server.js",
+    "dev": "tsx watch src/server.ts"
+  },
+  "dependencies": {
+    "@google/generative-ai": "^0.24.0",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "firebase-admin": "^13.1.0"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.21",
+    "@types/node": "^22.13.5",
+    "tsx": "^4.19.3",
+    "typescript": "~5.7.2"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

@@ -1,7 +1,9 @@
 import React, { useState } from 'react';
-import { ArrowLeft, Save, Feather, Clock } from 'lucide-react';
+import { ArrowLeft, Save, Feather, Clock, Mic, Square, RotateCcw, Trash2, Volume2, AlertCircle } from 'lucide-react';
 import type { Journal } from '../types/index';
 import { Button } from '../components/common/Button';
+import { VoiceInputButton } from '../components/common/VoiceInputButton';
+import { useVoiceRecorder, formatDuration } from '../hooks/useVoiceRecorder';
 
 interface WriteYourselfPageProps {
   journal: Journal;
@@ -9,6 +11,8 @@ interface WriteYourselfPageProps {
   onSaveEntry: (entryData: {
     title: string;
     content: string;
+    voiceBlob?: Blob;
+    voiceDuration?: number;
   }) => Promise<void>;
 }
 
@@ -20,6 +24,18 @@ export const WriteYourselfPage: React.FC<WriteYourselfPageProps> = ({
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
   const [isSaving, setIsSaving] = useState(false);
+  const [showVoicePanel, setShowVoicePanel] = useState(false);
+
+  const {
+    status: voiceStatus,
+    audioBlob,
+    audioUrl,
+    durationSeconds,
+    errorMessage: voiceError,
+    startRecording,
+    stopRecording,
+    discardRecording,
+  } = useVoiceRecorder();
 
   const wordCount = content.trim() ? content.trim().split(/\s+/).filter(Boolean).length : 0;
   const charCount = content.length;
@@ -31,13 +47,25 @@ export const WriteYourselfPage: React.FC<WriteYourselfPageProps> = ({
     year: 'numeric',
   }).format(new Date());
 
+  const handleAppendVoiceText = (spokenChunk: string) => {
+    setContent((prev) => {
+      const trimmed = spokenChunk.trim();
+      if (!trimmed) return prev;
+      if (!prev.trim()) return trimmed;
+      const needsSpace = !prev.endsWith(' ') && !prev.endsWith('\n');
+      return `${prev}${needsSpace ? ' ' : ''}${trimmed}`;
+    });
+  };
+
   const handleSave = async () => {
-    if (!content.trim()) return;
+    if (!content.trim() && !audioBlob) return;
     setIsSaving(true);
     try {
       await onSaveEntry({
         title: title.trim() || 'Untitled Reflection',
-        content: content.trim(),
+        content: content.trim() || '(Voice recording entry)',
+        voiceBlob: audioBlob || undefined,
+        voiceDuration: durationSeconds || undefined,
       });
     } finally {
       setIsSaving(false);
@@ -74,7 +102,7 @@ export const WriteYourselfPage: React.FC<WriteYourselfPageProps> = ({
               size="sm"
               leftIcon={<Save className="w-4 h-4" />}
               isLoading={isSaving}
-              disabled={!content.trim()}
+              disabled={!content.trim() && !audioBlob}
               onClick={handleSave}
             >
               Save Entry
@@ -82,11 +110,137 @@ export const WriteYourselfPage: React.FC<WriteYourselfPageProps> = ({
           </div>
         </div>
 
-        {/* Date line */}
-        <div className="mt-8 mb-4 flex items-center gap-2 text-xs font-mono text-[#8C8277]">
-          <Clock className="w-3.5 h-3.5" />
-          <span>{todayFormatted}</span>
+        {/* Date and Distinct Voice Controls: Voice-to-Text vs Actual Audio */}
+        <div className="mt-8 mb-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs font-mono text-[#8C8277]">
+          <div className="flex items-center gap-2">
+            <Clock className="w-3.5 h-3.5" />
+            <span>{todayFormatted}</span>
+          </div>
+
+          <div className="flex items-center gap-2 flex-wrap">
+            {/* 1. Speech-to-Text Input */}
+            <VoiceInputButton onAppendText={handleAppendVoiceText} />
+
+            {/* 2. Actual Audio Recorder Toggle */}
+            <button
+              type="button"
+              onClick={() => setShowVoicePanel(!showVoicePanel)}
+              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-mono transition-all cursor-pointer border select-none ${
+                showVoicePanel || audioBlob
+                  ? 'bg-[#FAF6EE] text-[#9E4F36] border-[#A25438] shadow-xs'
+                  : 'bg-[#FAF6EE] text-[#463F3A] border-[#DDD6C8] hover:bg-[#F2ECE1]'
+              }`}
+            >
+              <Volume2 className="w-3.5 h-3.5 text-[#9E4F36]" />
+              <span>{audioBlob ? '🎵 Audio Recorded' : '🎵 Record Voice'}</span>
+            </button>
+          </div>
         </div>
+
+        {/* Audio Recording Panel if opened */}
+        {showVoicePanel && (
+          <div className="mb-6 p-4 bg-[#FAF6EE] border border-[#DDD3C2] rounded-2xl animate-in fade-in slide-in-from-top-2 shadow-xs space-y-3">
+            <div className="flex items-center justify-between text-xs font-mono text-[#8C8277]">
+              <span className="uppercase tracking-wider font-semibold text-[#1C1816] flex items-center gap-1.5">
+                <Volume2 className="w-3.5 h-3.5 text-[#9E4F36]" />
+                Actual Audio Recording (Preserved to Firebase Storage)
+              </span>
+              <button
+                type="button"
+                onClick={() => setShowVoicePanel(false)}
+                className="text-xs text-[#A25438] hover:underline cursor-pointer"
+              >
+                Close
+              </button>
+            </div>
+
+            {voiceError && (
+              <div className="p-2.5 bg-[#FDF2F0] border border-[#F2C0B8] rounded-xl flex items-center gap-2 text-xs text-[#8A3A22]">
+                <AlertCircle className="w-4 h-4 shrink-0" />
+                <span>{voiceError}</span>
+              </div>
+            )}
+
+            {voiceStatus === 'idle' && !audioBlob && (
+              <button
+                type="button"
+                onClick={startRecording}
+                className="inline-flex items-center gap-2 px-4 py-2 bg-[#FAF6EE] text-[#463F3A] border border-[#DDD6C8] hover:bg-[#F2ECE1] rounded-xl text-xs sm:text-sm font-medium transition-colors cursor-pointer"
+              >
+                <Mic className="w-4 h-4 text-[#9E4F36]" />
+                <span>Start Audio Recording</span>
+              </button>
+            )}
+
+            {voiceStatus === 'recording' && (
+              <div className="flex items-center justify-between gap-3 p-3 bg-[#FAF8F3] border border-[#E8DFCFA] rounded-xl">
+                <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-2 px-3 py-1 bg-[#FDF2F0] text-[#8A3A22] border border-[#F2C0B8] rounded-lg text-xs font-mono">
+                    <span className="relative flex h-2 w-2">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#9E4F36] opacity-75" />
+                      <span className="relative inline-flex rounded-full h-2 w-2 bg-[#9E4F36]" />
+                    </span>
+                    <span>🎙 Recording</span>
+                  </div>
+                  <span className="font-mono text-sm font-semibold text-[#25211E]">
+                    {formatDuration(durationSeconds)}
+                  </span>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={stopRecording}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-1.5 bg-[#25211E] text-[#F7F5EE] hover:bg-[#1A1715] rounded-lg text-xs font-medium cursor-pointer shadow-sm"
+                >
+                  <Square className="w-3.5 h-3.5" />
+                  <span>Stop Recording</span>
+                </button>
+              </div>
+            )}
+
+            {audioBlob && audioUrl && voiceStatus !== 'recording' && (
+              <div className="space-y-3">
+                <div className="flex items-center justify-between text-xs font-mono text-[#8C8277]">
+                  <span className="font-semibold text-[#25211E]">🎵 Voice Recording Ready</span>
+                  <span>Duration: {formatDuration(durationSeconds)}</span>
+                </div>
+                <audio controls src={audioUrl} className="w-full h-9 rounded-md" />
+                <div className="flex items-center gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={handleSave}
+                    disabled={isSaving}
+                    className="inline-flex items-center gap-1.5 px-4 py-2 bg-[#9E4F36] text-white hover:bg-[#87412B] border border-[#87412B] rounded-xl text-xs sm:text-sm font-medium transition-colors cursor-pointer shadow-xs disabled:opacity-60"
+                  >
+                    <Save className="w-4 h-4" />
+                    <span>Save Voice & Entry</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      discardRecording();
+                      await startRecording();
+                    }}
+                    className="inline-flex items-center gap-1.5 px-3 py-2 bg-[#FAF6EE] text-[#463F3A] border border-[#DDD6C8] hover:bg-[#F2ECE1] rounded-xl text-xs sm:text-sm font-medium transition-colors cursor-pointer"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5" />
+                    <span>Record Again</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={discardRecording}
+                    className="inline-flex items-center gap-1.5 px-3 py-2 bg-[#FAF6EE] text-[#8A3A22] border border-[#F2C0B8] hover:bg-[#FDF2F0] rounded-xl text-xs sm:text-sm font-medium transition-colors cursor-pointer"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Discard</span>
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Writing Stage */}
         <div className="bg-[#FAF6EE] rounded-2xl border border-[#DDD3C2] p-6 sm:p-12 paper-texture shadow-xs">

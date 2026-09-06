@@ -19,6 +19,7 @@ import {
   getDocs,
   updateDoc,
   deleteDoc,
+  deleteField,
   query,
   orderBy,
   serverTimestamp,
@@ -31,6 +32,7 @@ import type {
   ChatMessage,
   AIReflection,
   ReflectionMode,
+  VoiceRecording,
 } from '../types/index';
 import { incrementEntryCount } from './journalService';
 
@@ -90,6 +92,19 @@ function docToEntry(id: string, data: DocumentData): JournalEntry {
           ? (raw.generatedAt as Timestamp).toDate()
           : new Date(raw.generatedAt as string),
     };
+  } else if (typeof window !== 'undefined') {
+    try {
+      const cached = localStorage.getItem(`gemini_reflection_${id}`);
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        aiReflection = {
+          ...parsed,
+          generatedAt: parsed.generatedAt ? new Date(parsed.generatedAt) : new Date(),
+        };
+      }
+    } catch {
+      // Ignore cache parse errors
+    }
   }
 
   return {
@@ -102,6 +117,7 @@ function docToEntry(id: string, data: DocumentData): JournalEntry {
     originalContent: (data.originalContent as string) || '',
     conversation: data.conversation as ChatMessage[] | undefined,
     aiReflection,
+    voiceRecording: data.voiceRecording as VoiceRecording | undefined,
     wordCount: (data.wordCount as number) || 0,
     createdAt,
     updatedAt,
@@ -121,9 +137,15 @@ export async function getEntries(
   journalId: string,
 ): Promise<JournalEntry[]> {
   const ref = collection(db, 'users', uid, 'journals', journalId, 'entries');
-  const q = query(ref, orderBy('createdAt', 'desc'));
+  const q = query(ref, orderBy('createdAt', 'asc'));
   const snap = await getDocs(q);
-  return snap.docs.map((d) => docToEntry(d.id, d.data()));
+  const entries = snap.docs.map((d) => docToEntry(d.id, d.data()));
+  // Ensure deterministic, stable chronological sequence with ID tie-breaker
+  return entries.sort((a, b) => {
+    const diff = a.createdAt.getTime() - b.createdAt.getTime();
+    if (diff !== 0) return diff;
+    return a.id.localeCompare(b.id);
+  });
 }
 
 /**
@@ -172,9 +194,7 @@ export async function createEntry(
   const now = new Date();
   const displayDate = formatDisplayDate(now);
 
-  // Build payload — aiReflection only included if provided
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const payload: Record<string, any> = {
+  const payload: Record<string, unknown> = {
     journalId: dto.journalId,
     userId: uid,
     title: dto.title.trim() || 'Untitled Reflection',
@@ -190,15 +210,10 @@ export async function createEntry(
     payload.conversation = dto.conversation;
   }
 
-  // aiReflection only when supplied (conversation-confirm flow)
   if (dto.aiReflection) {
     payload.aiReflection = {
       ...dto.aiReflection,
-      // Ensure generatedAt is stored as an ISO string for Admin SDK compatibility
-      generatedAt:
-        dto.aiReflection.generatedAt instanceof Date
-          ? dto.aiReflection.generatedAt.toISOString()
-          : dto.aiReflection.generatedAt,
+      generatedAt: serverTimestamp(),
     };
   }
 
@@ -210,6 +225,57 @@ export async function createEntry(
 
   const snap = await getDoc(docRef);
   return docToEntry(snap.id, snap.data()!);
+}
+
+/**
+ * Attach or update an AI reflection for an existing journal entry.
+ * Original content remains strictly untouched.
+ */
+export async function attachEntryReflection(
+  uid: string,
+  journalId: string,
+  entryId: string,
+  reflection: AIReflection,
+): Promise<void> {
+  const ref = doc(db, 'users', uid, 'journals', journalId, 'entries', entryId);
+  await updateDoc(ref, {
+    aiReflection: {
+      ...reflection,
+      generatedAt: serverTimestamp(),
+    },
+    updatedAt: serverTimestamp(),
+  });
+}
+
+/**
+ * Attach a voice recording to an existing journal entry.
+ */
+export async function attachVoiceRecording(
+  uid: string,
+  journalId: string,
+  entryId: string,
+  voiceRecording: VoiceRecording,
+): Promise<void> {
+  const ref = doc(db, 'users', uid, 'journals', journalId, 'entries', entryId);
+  await updateDoc(ref, {
+    voiceRecording,
+    updatedAt: serverTimestamp(),
+  });
+}
+
+/**
+ * Remove a voice recording from an existing journal entry.
+ */
+export async function removeVoiceRecording(
+  uid: string,
+  journalId: string,
+  entryId: string,
+): Promise<void> {
+  const ref = doc(db, 'users', uid, 'journals', journalId, 'entries', entryId);
+  await updateDoc(ref, {
+    voiceRecording: deleteField(),
+    updatedAt: serverTimestamp(),
+  });
 }
 
 /**

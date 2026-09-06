@@ -35,12 +35,18 @@ service cloud.firestore {
           && request.resource.data.userId == userId
           && request.resource.data.entryCount == 0;
 
-        // Client can update title, description, coverTheme, updatedAt, and atomic entryCount
+        // Client can update title, description, coverTheme, updatedAt, and atomic entryCount (+1, -1, or unchanged)
         allow update: if isOwner(userId)
           && request.resource.data.userId == resource.data.userId
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
             'title', 'description', 'coverTheme', 'entryCount', 'updatedAt'
-          ]);
+          ])
+          && (
+            !request.resource.data.diff(resource.data).affectedKeys().hasAny(['entryCount'])
+            || request.resource.data.entryCount == resource.data.entryCount + 1
+            || request.resource.data.entryCount == resource.data.entryCount - 1
+            || request.resource.data.entryCount == resource.data.entryCount
+          );
 
         allow delete: if isOwner(userId);
 
@@ -48,21 +54,37 @@ service cloud.firestore {
         match /entries/{entryId} {
           allow read: if isOwner(userId);
 
-          // Creation: originalContent is provided; aiReflection cannot be written by client
+          // Creation: originalContent is provided; voiceRecording path must belong to userId if present
           allow create: if isOwner(userId)
             && request.resource.data.userId == userId
             && request.resource.data.journalId == journalId
             && request.resource.data.originalContent is string
-            && request.resource.data.originalContent.size() > 0;
+            && request.resource.data.originalContent.size() > 0
+            && (
+              !('voiceRecording' in request.resource.data)
+              || request.resource.data.voiceRecording == null
+              || (
+                request.resource.data.voiceRecording.storagePath is string
+                && request.resource.data.voiceRecording.storagePath.matches('^voice/' + userId + '/.*')
+              )
+            );
 
-          // Update: originalContent, userId, journalId, and aiReflection are strictly IMMUTABLE for client
+          // Update: originalContent, userId, and journalId are strictly IMMUTABLE for client
           allow update: if isOwner(userId)
             && request.resource.data.userId == resource.data.userId
             && request.resource.data.journalId == resource.data.journalId
             && request.resource.data.originalContent == resource.data.originalContent
             && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-              'title', 'updatedAt'
-            ]);
+              'title', 'updatedAt', 'aiReflection', 'voiceRecording'
+            ])
+            && (
+              !request.resource.data.diff(resource.data).affectedKeys().hasAny(['voiceRecording'])
+              || request.resource.data.voiceRecording == null
+              || (
+                request.resource.data.voiceRecording.storagePath is string
+                && request.resource.data.voiceRecording.storagePath.matches('^voice/' + userId + '/.*')
+              )
+            );
 
           allow delete: if isOwner(userId);
         }
